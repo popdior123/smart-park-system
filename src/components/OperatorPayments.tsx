@@ -33,32 +33,59 @@ const OperatorPayments: React.FC<OperatorPaymentsProps> = ({
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'mobile'>('mobile');
   const { toast } = useToast();
 
+  // Get active parking records (cars currently parked)
+  const activeRecords = parkingRecords.filter(record => record.isActive);
+  
+  // Get unpaid records (cars that were parked but haven't paid yet)
   const unpaidRecords = parkingRecords.filter(record => 
     !record.isActive && record.duration && !record.isPaid
   );
 
-  const paidRecords = parkingRecords.filter(record => record.isPaid);
+  const calculateDurationAndAmount = (record: ParkingRecord) => {
+    const now = new Date();
+    const entryTime = new Date(record.entryTime);
+    const durationHours = Math.ceil((now.getTime() - entryTime.getTime()) / (1000 * 60 * 60));
+    const amount = durationHours * HOURLY_RATE;
+    return { durationHours, amount };
+  };
 
-  const processPayment = () => {
-    if (!selectedRecord || !selectedRecord.duration) return;
+  const payAndRelease = () => {
+    if (!selectedRecord) return;
 
-    const amount = selectedRecord.duration * HOURLY_RATE;
+    const { durationHours, amount } = calculateDurationAndAmount(selectedRecord);
+    
+    const exitTime = new Date();
     const newPayment: Payment = {
       id: `payment-${Date.now()}`,
       recordId: selectedRecord.id,
       operatorId,
       amountPaid: amount,
-      paymentDate: new Date(),
+      paymentDate: exitTime,
       paymentMethod,
       status: 'completed'
     };
 
-    // Update records to mark as paid
+    // Update the parking record
     const updatedRecords = parkingRecords.map(record =>
       record.id === selectedRecord.id
-        ? { ...record, isPaid: true }
+        ? { 
+            ...record, 
+            exitTime, 
+            duration: durationHours, 
+            isActive: false, 
+            isPaid: true 
+          }
         : record
     );
+
+    // Release the slot
+    const allSlots = JSON.parse(localStorage.getItem('parking_slots') || '[]');
+    const updatedSlots = allSlots.map((slot: any) =>
+      slot.id === selectedRecord.slotId
+        ? { ...slot, slotStatus: 'available' }
+        : slot
+    );
+    localStorage.setItem('parking_slots', JSON.stringify(updatedSlots));
 
     const updatedPayments = [...payments, newPayment];
     
@@ -72,34 +99,8 @@ const OperatorPayments: React.FC<OperatorPaymentsProps> = ({
     setSelectedRecord(null);
 
     toast({
-      title: 'Payment Processed',
-      description: `Payment of ${amount} RWF processed successfully. You can now release the slot.`,
-    });
-  };
-
-  const releaseSlot = (recordId: string) => {
-    const record = parkingRecords.find(r => r.id === recordId);
-    if (!record || !record.isPaid) {
-      toast({
-        title: 'Cannot Release Slot',
-        description: 'Please pay the bill first before releasing the slot.',
-        variant: 'destructive'
-      });
-      return;
-    }
-
-    // Update parking slots to available
-    const slots = JSON.parse(localStorage.getItem('parking_slots') || '[]');
-    const updatedSlots = slots.map((slot: any) =>
-      slot.id === record.slotId
-        ? { ...slot, slotStatus: 'available' }
-        : slot
-    );
-    localStorage.setItem('parking_slots', JSON.stringify(updatedSlots));
-
-    toast({
-      title: 'Slot Released',
-      description: 'Parking slot has been released successfully.',
+      title: 'Payment Processed & Slot Released',
+      description: `Payment of ${amount} RWF processed successfully. Slot has been released.`,
     });
   };
 
@@ -143,36 +144,40 @@ const OperatorPayments: React.FC<OperatorPaymentsProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Unpaid Bills */}
+      {/* Currently Parked Cars - Pay to Release */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center">
             <CreditCard className="h-5 w-5 mr-2" />
-            Unpaid Bills
+            Currently Parked - Pay to Release
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {unpaidRecords.length > 0 ? (
+          {activeRecords.length > 0 ? (
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Car</TableHead>
+                  <TableHead>Entry Time</TableHead>
                   <TableHead>Duration</TableHead>
-                  <TableHead>Amount</TableHead>
+                  <TableHead>Amount to Pay</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {unpaidRecords.map((record) => {
+                {activeRecords.map((record) => {
                   const car = getCarForRecord(record);
-                  const amount = (record.duration || 0) * HOURLY_RATE;
+                  const { durationHours, amount } = calculateDurationAndAmount(record);
                   
                   return (
                     <TableRow key={record.id}>
                       <TableCell className="font-medium">
                         {car?.plateNumber || 'Unknown'}
                       </TableCell>
-                      <TableCell>{formatDuration(record.duration || 0)}</TableCell>
+                      <TableCell>
+                        {new Date(record.entryTime).toLocaleString()}
+                      </TableCell>
+                      <TableCell>{formatDuration(durationHours)}</TableCell>
                       <TableCell className="font-bold">{amount} RWF</TableCell>
                       <TableCell>
                         <Dialog>
@@ -181,18 +186,18 @@ const OperatorPayments: React.FC<OperatorPaymentsProps> = ({
                               size="sm"
                               onClick={() => setSelectedRecord(record)}
                             >
-                              Pay Now
+                              Pay to Release
                             </Button>
                           </DialogTrigger>
                           <DialogContent>
                             <DialogHeader>
-                              <DialogTitle>Process Payment</DialogTitle>
+                              <DialogTitle>Pay and Release Slot</DialogTitle>
                             </DialogHeader>
                             <div className="space-y-4">
                               <div className="bg-gray-50 p-4 rounded-lg">
                                 <h4 className="font-semibold">Payment Details</h4>
                                 <p>Car: {car?.plateNumber}</p>
-                                <p>Duration: {formatDuration(record.duration || 0)}</p>
+                                <p>Duration: {formatDuration(durationHours)}</p>
                                 <p className="text-lg font-bold">Amount: {amount} RWF</p>
                               </div>
                               <div className="space-y-2">
@@ -208,9 +213,9 @@ const OperatorPayments: React.FC<OperatorPaymentsProps> = ({
                                   </SelectContent>
                                 </Select>
                               </div>
-                              <Button onClick={processPayment} className="w-full">
+                              <Button onClick={payAndRelease} className="w-full">
                                 <Receipt className="h-4 w-4 mr-2" />
-                                Process Payment
+                                Pay {amount} RWF & Release Slot
                               </Button>
                             </div>
                           </DialogContent>
@@ -223,13 +228,13 @@ const OperatorPayments: React.FC<OperatorPaymentsProps> = ({
             </Table>
           ) : (
             <div className="text-center py-8 text-gray-500">
-              No unpaid bills at the moment.
+              No cars currently parked.
             </div>
           )}
         </CardContent>
       </Card>
 
-      {/* Paid Bills */}
+      {/* Payment History */}
       <Card>
         <CardHeader>
           <CardTitle>Payment History</CardTitle>
@@ -241,6 +246,7 @@ const OperatorPayments: React.FC<OperatorPaymentsProps> = ({
                 <TableRow>
                   <TableHead>Date</TableHead>
                   <TableHead>Car</TableHead>
+                  <TableHead>Duration</TableHead>
                   <TableHead>Amount</TableHead>
                   <TableHead>Method</TableHead>
                   <TableHead>Actions</TableHead>
@@ -257,24 +263,19 @@ const OperatorPayments: React.FC<OperatorPaymentsProps> = ({
                         {payment.paymentDate.toLocaleDateString()}
                       </TableCell>
                       <TableCell>{car?.plateNumber || 'Unknown'}</TableCell>
+                      <TableCell>
+                        {record?.duration ? formatDuration(record.duration) : 'Unknown'}
+                      </TableCell>
                       <TableCell className="font-bold">{payment.amountPaid} RWF</TableCell>
                       <TableCell className="capitalize">{payment.paymentMethod}</TableCell>
                       <TableCell>
-                        <div className="flex space-x-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => downloadReceipt(payment)}
-                          >
-                            <Download className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            size="sm"
-                            onClick={() => releaseSlot(payment.recordId)}
-                          >
-                            Release Slot
-                          </Button>
-                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => downloadReceipt(payment)}
+                        >
+                          <Download className="h-4 w-4" />
+                        </Button>
                       </TableCell>
                     </TableRow>
                   );

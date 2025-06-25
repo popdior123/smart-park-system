@@ -31,6 +31,20 @@ const OperatorParkingGrid: React.FC<OperatorParkingGridProps> = ({
   const assignCarToSlot = () => {
     if (!selectedSlot || !selectedCarId) return;
 
+    // Check if car is already parked somewhere
+    const carAlreadyParked = parkingRecords.find(
+      record => record.carId === selectedCarId && record.isActive
+    );
+
+    if (carAlreadyParked) {
+      toast({
+        title: 'Car Already Parked',
+        description: 'This car is already parked in another slot. Please release it first.',
+        variant: 'destructive'
+      });
+      return;
+    }
+
     const newRecord: ParkingRecord = {
       id: `record-${Date.now()}`,
       slotId: selectedSlot.id,
@@ -44,7 +58,16 @@ const OperatorParkingGrid: React.FC<OperatorParkingGridProps> = ({
     const updatedRecords = [...parkingRecords, newRecord];
     onRecordUpdate(updatedRecords);
     
-    // Update localStorage
+    // Update slot status in localStorage
+    const allSlots = JSON.parse(localStorage.getItem('parking_slots') || '[]');
+    const updatedSlots = allSlots.map((slot: ParkingSlot) =>
+      slot.id === selectedSlot.id
+        ? { ...slot, slotStatus: 'occupied' }
+        : slot
+    );
+    localStorage.setItem('parking_slots', JSON.stringify(updatedSlots));
+    
+    // Update localStorage records
     const allRecords = JSON.parse(localStorage.getItem('parking_records') || '[]');
     localStorage.setItem('parking_records', JSON.stringify([...allRecords, newRecord]));
     
@@ -85,6 +108,31 @@ const OperatorParkingGrid: React.FC<OperatorParkingGridProps> = ({
     return !activeRecord;
   };
 
+  const isSlotOccupiedByOperator = (slotId: string) => {
+    const activeRecord = parkingRecords.find(
+      record => record.slotId === slotId && record.isActive && record.operatorId === operatorId
+    );
+    return !!activeRecord;
+  };
+
+  // Get available cars that are not currently parked
+  const availableCars = cars.filter(car => {
+    const isParked = parkingRecords.find(
+      record => record.carId === car.id && record.isActive
+    );
+    return !isParked;
+  });
+
+  // Filter slots to show only available ones and ones occupied by current operator
+  const visibleSlots = slots.filter(slot => {
+    const activeRecord = parkingRecords.find(
+      record => record.slotId === slot.id && record.isActive
+    );
+    
+    // Show if available or occupied by current operator
+    return !activeRecord || activeRecord.operatorId === operatorId;
+  });
+
   return (
     <div>
       <CardHeader>
@@ -95,9 +143,10 @@ const OperatorParkingGrid: React.FC<OperatorParkingGridProps> = ({
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-4">
-          {slots.map((slot) => {
+          {visibleSlots.map((slot) => {
             const assignedCar = getCarForSlot(slot.id);
             const isAvailable = canAssignToSlot(slot.id);
+            const isOccupiedByMe = isSlotOccupiedByOperator(slot.id);
             
             return (
               <Card
@@ -113,13 +162,13 @@ const OperatorParkingGrid: React.FC<OperatorParkingGridProps> = ({
                     >
                       {isAvailable ? 'available' : 'occupied'}
                     </Badge>
-                    {assignedCar && (
+                    {assignedCar && isOccupiedByMe && (
                       <div className="text-xs text-gray-600">
                         <CarIcon className="h-3 w-3 inline mr-1" />
                         {assignedCar.plateNumber}
                       </div>
                     )}
-                    {isAvailable && (
+                    {isAvailable && availableCars.length > 0 && (
                       <Dialog>
                         <DialogTrigger asChild>
                           <Button
@@ -140,7 +189,7 @@ const OperatorParkingGrid: React.FC<OperatorParkingGridProps> = ({
                                 <SelectValue placeholder="Select your car" />
                               </SelectTrigger>
                               <SelectContent>
-                                {cars.map((car) => (
+                                {availableCars.map((car) => (
                                   <SelectItem key={car.id} value={car.id}>
                                     {car.plateNumber} - {car.driverName}
                                   </SelectItem>
@@ -160,9 +209,9 @@ const OperatorParkingGrid: React.FC<OperatorParkingGridProps> = ({
             );
           })}
         </div>
-        {cars.length === 0 && (
+        {availableCars.length === 0 && (
           <div className="text-center py-8 text-gray-500">
-            You need to register a car first before you can park.
+            All your cars are currently parked or you need to register a car first.
           </div>
         )}
       </CardContent>

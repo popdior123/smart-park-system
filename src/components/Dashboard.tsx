@@ -20,21 +20,17 @@ const Dashboard: React.FC = () => {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [operators, setOperators] = useState<User[]>([]);
 
-  // Initialize mock data
+  // Initialize data and sync slot status
   useEffect(() => {
-    // Initialize parking slots (empty by default)
+    // Load parking slots
     const storedSlots = localStorage.getItem('parking_slots');
     if (storedSlots) {
       setParkingSlots(JSON.parse(storedSlots));
     } else {
-      const mockSlots: ParkingSlot[] = Array.from({ length: 20 }, (_, i) => ({
-        id: `slot-${i + 1}`,
-        slotNumber: `A${String(i + 1).padStart(2, '0')}`,
-        slotStatus: 'available', // All slots start as available
-        location: `Zone A, Level 1`
-      }));
-      setParkingSlots(mockSlots);
-      localStorage.setItem('parking_slots', JSON.stringify(mockSlots));
+      // Initialize with empty slots array - admin will add slots
+      const initialSlots: ParkingSlot[] = [];
+      setParkingSlots(initialSlots);
+      localStorage.setItem('parking_slots', JSON.stringify(initialSlots));
     }
 
     // Load all data for admin view
@@ -42,7 +38,10 @@ const Dashboard: React.FC = () => {
     if (storedCars) setCars(JSON.parse(storedCars));
 
     const storedRecords = localStorage.getItem('parking_records');
-    if (storedRecords) setParkingRecords(JSON.parse(storedRecords));
+    if (storedRecords) {
+      const records = JSON.parse(storedRecords);
+      setParkingRecords(records);
+    }
 
     const storedPayments = localStorage.getItem('parking_payments');
     if (storedPayments) setPayments(JSON.parse(storedPayments));
@@ -51,16 +50,30 @@ const Dashboard: React.FC = () => {
     setOperators(getAllOperators());
   }, [getAllOperators]);
 
-  const stats = {
-    totalSlots: parkingSlots.length,
-    occupiedSlots: parkingSlots.filter(slot => slot.slotStatus === 'occupied').length,
-    availableSlots: parkingSlots.filter(slot => slot.slotStatus === 'available').length,
-    totalRevenue: payments.reduce((sum, payment) => sum + payment.amountPaid, 0),
-    totalOperators: operators.length,
-    activeOperators: operators.filter(op => 
-      parkingRecords.some(record => record.operatorId === op.id && record.isActive)
-    ).length
+  // Calculate actual slot statistics based on parking records
+  const getActualStats = () => {
+    const totalSlots = parkingSlots.length;
+    const occupiedSlots = parkingSlots.filter(slot => {
+      const activeRecord = parkingRecords.find(
+        record => record.slotId === slot.id && record.isActive
+      );
+      return !!activeRecord;
+    }).length;
+    const availableSlots = totalSlots - occupiedSlots;
+    
+    return {
+      totalSlots,
+      occupiedSlots,
+      availableSlots,
+      totalRevenue: payments.reduce((sum, payment) => sum + payment.amountPaid, 0),
+      totalOperators: operators.length,
+      activeOperators: operators.filter(op => 
+        parkingRecords.some(record => record.operatorId === op.id && record.isActive)
+      ).length
+    };
   };
+
+  const stats = getActualStats();
 
   return (
     <div className="min-h-screen bg-gray-50">
