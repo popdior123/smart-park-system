@@ -7,31 +7,37 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ParkingRecord, Payment, Car } from '@/types/parking';
-import { CreditCard, Receipt } from 'lucide-react';
+import { CreditCard, Receipt, Download } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
-interface PaymentProcessingProps {
+interface OperatorPaymentsProps {
   parkingRecords: ParkingRecord[];
   payments: Payment[];
   onPaymentUpdate: (payments: Payment[]) => void;
+  onRecordUpdate: (records: ParkingRecord[]) => void;
   cars: Car[];
+  operatorId: string;
 }
 
 const HOURLY_RATE = 500; // RWF per hour
 
-const PaymentProcessing: React.FC<PaymentProcessingProps> = ({
+const OperatorPayments: React.FC<OperatorPaymentsProps> = ({
   parkingRecords,
   payments,
   onPaymentUpdate,
-  cars
+  onRecordUpdate,
+  cars,
+  operatorId
 }) => {
   const [selectedRecord, setSelectedRecord] = useState<ParkingRecord | null>(null);
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'mobile'>('cash');
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'mobile'>('mobile');
   const { toast } = useToast();
 
-  const pendingRecords = parkingRecords.filter(record => 
-    !record.isActive && record.duration && !payments.some(payment => payment.recordId === record.id)
+  const unpaidRecords = parkingRecords.filter(record => 
+    !record.isActive && record.duration && !record.isPaid
   );
+
+  const paidRecords = parkingRecords.filter(record => record.isPaid);
 
   const processPayment = () => {
     if (!selectedRecord || !selectedRecord.duration) return;
@@ -40,19 +46,60 @@ const PaymentProcessing: React.FC<PaymentProcessingProps> = ({
     const newPayment: Payment = {
       id: `payment-${Date.now()}`,
       recordId: selectedRecord.id,
-      operatorId: selectedRecord.operatorId,
+      operatorId,
       amountPaid: amount,
       paymentDate: new Date(),
       paymentMethod,
       status: 'completed'
     };
 
-    onPaymentUpdate([...payments, newPayment]);
+    // Update records to mark as paid
+    const updatedRecords = parkingRecords.map(record =>
+      record.id === selectedRecord.id
+        ? { ...record, isPaid: true }
+        : record
+    );
+
+    const updatedPayments = [...payments, newPayment];
+    
+    onPaymentUpdate(updatedPayments);
+    onRecordUpdate(updatedRecords);
+    
+    // Update localStorage
+    localStorage.setItem('parking_payments', JSON.stringify([...JSON.parse(localStorage.getItem('parking_payments') || '[]'), newPayment]));
+    localStorage.setItem('parking_records', JSON.stringify(updatedRecords));
+    
     setSelectedRecord(null);
 
     toast({
       title: 'Payment Processed',
-      description: `Payment of ${amount} RWF processed successfully`,
+      description: `Payment of ${amount} RWF processed successfully. You can now release the slot.`,
+    });
+  };
+
+  const releaseSlot = (recordId: string) => {
+    const record = parkingRecords.find(r => r.id === recordId);
+    if (!record || !record.isPaid) {
+      toast({
+        title: 'Cannot Release Slot',
+        description: 'Please pay the bill first before releasing the slot.',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    // Update parking slots to available
+    const slots = JSON.parse(localStorage.getItem('parking_slots') || '[]');
+    const updatedSlots = slots.map((slot: any) =>
+      slot.id === record.slotId
+        ? { ...slot, slotStatus: 'available' }
+        : slot
+    );
+    localStorage.setItem('parking_slots', JSON.stringify(updatedSlots));
+
+    toast({
+      title: 'Slot Released',
+      description: 'Parking slot has been released successfully.',
     });
   };
 
@@ -65,30 +112,58 @@ const PaymentProcessing: React.FC<PaymentProcessingProps> = ({
     return `${hours} hour${hours > 1 ? 's' : ''}`;
   };
 
+  const downloadReceipt = (payment: Payment) => {
+    const record = parkingRecords.find(r => r.id === payment.recordId);
+    const car = record ? getCarForRecord(record) : null;
+    
+    const receiptData = {
+      paymentId: payment.id,
+      car: car?.plateNumber || 'Unknown',
+      driver: car?.driverName || 'Unknown',
+      amount: payment.amountPaid,
+      date: payment.paymentDate.toLocaleDateString(),
+      method: payment.paymentMethod,
+      duration: record?.duration ? formatDuration(record.duration) : 'Unknown'
+    };
+    
+    const dataStr = JSON.stringify(receiptData, null, 2);
+    const dataBlob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(dataBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `receipt-${payment.id}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    
+    toast({
+      title: 'Receipt Downloaded',
+      description: 'Receipt has been downloaded successfully.',
+    });
+  };
+
   return (
-    <div>
-      <CardHeader>
-        <CardTitle className="flex items-center">
-          <CreditCard className="h-5 w-5 mr-2" />
-          Payment Processing
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="mb-6">
-          <h3 className="text-lg font-semibold mb-4">Pending Payments</h3>
-          {pendingRecords.length > 0 ? (
+    <div className="space-y-6">
+      {/* Unpaid Bills */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center">
+            <CreditCard className="h-5 w-5 mr-2" />
+            Unpaid Bills
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {unpaidRecords.length > 0 ? (
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Car</TableHead>
-                  <TableHead>Driver</TableHead>
                   <TableHead>Duration</TableHead>
                   <TableHead>Amount</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {pendingRecords.map((record) => {
+                {unpaidRecords.map((record) => {
                   const car = getCarForRecord(record);
                   const amount = (record.duration || 0) * HOURLY_RATE;
                   
@@ -97,7 +172,6 @@ const PaymentProcessing: React.FC<PaymentProcessingProps> = ({
                       <TableCell className="font-medium">
                         {car?.plateNumber || 'Unknown'}
                       </TableCell>
-                      <TableCell>{car?.driverName || 'Unknown'}</TableCell>
                       <TableCell>{formatDuration(record.duration || 0)}</TableCell>
                       <TableCell className="font-bold">{amount} RWF</TableCell>
                       <TableCell>
@@ -107,7 +181,7 @@ const PaymentProcessing: React.FC<PaymentProcessingProps> = ({
                               size="sm"
                               onClick={() => setSelectedRecord(record)}
                             >
-                              Process Payment
+                              Pay Now
                             </Button>
                           </DialogTrigger>
                           <DialogContent>
@@ -118,7 +192,6 @@ const PaymentProcessing: React.FC<PaymentProcessingProps> = ({
                               <div className="bg-gray-50 p-4 rounded-lg">
                                 <h4 className="font-semibold">Payment Details</h4>
                                 <p>Car: {car?.plateNumber}</p>
-                                <p>Driver: {car?.driverName}</p>
                                 <p>Duration: {formatDuration(record.duration || 0)}</p>
                                 <p className="text-lg font-bold">Amount: {amount} RWF</p>
                               </div>
@@ -150,13 +223,18 @@ const PaymentProcessing: React.FC<PaymentProcessingProps> = ({
             </Table>
           ) : (
             <div className="text-center py-8 text-gray-500">
-              No pending payments at the moment.
+              No unpaid bills at the moment.
             </div>
           )}
-        </div>
+        </CardContent>
+      </Card>
 
-        <div>
-          <h3 className="text-lg font-semibold mb-4">Recent Payments</h3>
+      {/* Paid Bills */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Payment History</CardTitle>
+        </CardHeader>
+        <CardContent>
           {payments.length > 0 ? (
             <Table>
               <TableHeader>
@@ -165,7 +243,7 @@ const PaymentProcessing: React.FC<PaymentProcessingProps> = ({
                   <TableHead>Car</TableHead>
                   <TableHead>Amount</TableHead>
                   <TableHead>Method</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -176,15 +254,27 @@ const PaymentProcessing: React.FC<PaymentProcessingProps> = ({
                   return (
                     <TableRow key={payment.id}>
                       <TableCell>
-                        {payment.paymentDate.toLocaleDateString()} {payment.paymentDate.toLocaleTimeString()}
+                        {payment.paymentDate.toLocaleDateString()}
                       </TableCell>
                       <TableCell>{car?.plateNumber || 'Unknown'}</TableCell>
                       <TableCell className="font-bold">{payment.amountPaid} RWF</TableCell>
                       <TableCell className="capitalize">{payment.paymentMethod}</TableCell>
                       <TableCell>
-                        <Badge variant={payment.status === 'completed' ? 'default' : 'secondary'}>
-                          {payment.status}
-                        </Badge>
+                        <div className="flex space-x-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => downloadReceipt(payment)}
+                          >
+                            <Download className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={() => releaseSlot(payment.recordId)}
+                          >
+                            Release Slot
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   );
@@ -193,13 +283,13 @@ const PaymentProcessing: React.FC<PaymentProcessingProps> = ({
             </Table>
           ) : (
             <div className="text-center py-8 text-gray-500">
-              No payments processed yet.
+              No payments made yet.
             </div>
           )}
-        </div>
-      </CardContent>
+        </CardContent>
+      </Card>
     </div>
   );
 };
 
-export default PaymentProcessing;
+export default OperatorPayments;

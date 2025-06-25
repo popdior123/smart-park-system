@@ -18,7 +18,8 @@ const RegistrationForm: React.FC<RegistrationFormProps> = ({ onBackToLogin }) =>
     fullName: '',
     phoneNumber: '',
     password: '',
-    confirmPassword: ''
+    confirmPassword: '',
+    role: 'operator' as const
   });
   const [isLoading, setIsLoading] = useState(false);
   const { register } = useAuth();

@@ -9,20 +9,20 @@ import { ParkingSlot, Car, ParkingRecord } from '@/types/parking';
 import { Car as CarIcon, MapPin } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
-interface ParkingSlotGridProps {
+interface OperatorParkingGridProps {
   slots: ParkingSlot[];
-  onSlotUpdate: (slots: ParkingSlot[]) => void;
   cars: Car[];
   parkingRecords: ParkingRecord[];
   onRecordUpdate: (records: ParkingRecord[]) => void;
+  operatorId: string;
 }
 
-const ParkingSlotGrid: React.FC<ParkingSlotGridProps> = ({
+const OperatorParkingGrid: React.FC<OperatorParkingGridProps> = ({
   slots,
-  onSlotUpdate,
   cars,
   parkingRecords,
-  onRecordUpdate
+  onRecordUpdate,
+  operatorId
 }) => {
   const [selectedSlot, setSelectedSlot] = useState<ParkingSlot | null>(null);
   const [selectedCarId, setSelectedCarId] = useState<string>('');
@@ -31,64 +31,29 @@ const ParkingSlotGrid: React.FC<ParkingSlotGridProps> = ({
   const assignCarToSlot = () => {
     if (!selectedSlot || !selectedCarId) return;
 
-    const car = cars.find(c => c.id === selectedCarId);
-    if (!car) return;
-
-    const updatedSlots = slots.map(slot =>
-      slot.id === selectedSlot.id
-        ? { ...slot, slotStatus: 'occupied' as const }
-        : slot
-    );
-
     const newRecord: ParkingRecord = {
       id: `record-${Date.now()}`,
       slotId: selectedSlot.id,
       carId: selectedCarId,
-      operatorId: car.operatorId,
+      operatorId,
       entryTime: new Date(),
       isActive: true,
       isPaid: false
     };
 
-    onSlotUpdate(updatedSlots);
-    onRecordUpdate([...parkingRecords, newRecord]);
+    const updatedRecords = [...parkingRecords, newRecord];
+    onRecordUpdate(updatedRecords);
+    
+    // Update localStorage
+    const allRecords = JSON.parse(localStorage.getItem('parking_records') || '[]');
+    localStorage.setItem('parking_records', JSON.stringify([...allRecords, newRecord]));
+    
     setSelectedSlot(null);
     setSelectedCarId('');
 
     toast({
       title: 'Car Assigned',
       description: `Car assigned to slot ${selectedSlot.slotNumber}`,
-    });
-  };
-
-  const releaseSlot = (slot: ParkingSlot) => {
-    const activeRecord = parkingRecords.find(
-      record => record.slotId === slot.id && record.isActive
-    );
-
-    if (!activeRecord) return;
-
-    const exitTime = new Date();
-    const duration = Math.round(
-      (exitTime.getTime() - activeRecord.entryTime.getTime()) / (1000 * 60 * 60)
-    );
-
-    const updatedSlots = slots.map(s =>
-      s.id === slot.id ? { ...s, slotStatus: 'available' as const } : s
-    );
-
-    const updatedRecords = parkingRecords.map(record =>
-      record.id === activeRecord.id
-        ? { ...record, exitTime, duration, isActive: false }
-        : record
-    );
-
-    onSlotUpdate(updatedSlots);
-    onRecordUpdate(updatedRecords);
-
-    toast({
-      title: 'Slot Released',
-      description: `Slot ${slot.slotNumber} is now available`,
     });
   };
 
@@ -113,31 +78,40 @@ const ParkingSlotGrid: React.FC<ParkingSlotGridProps> = ({
     return cars.find(car => car.id === activeRecord.carId);
   };
 
+  const canAssignToSlot = (slotId: string) => {
+    const activeRecord = parkingRecords.find(
+      record => record.slotId === slotId && record.isActive
+    );
+    return !activeRecord;
+  };
+
   return (
     <div>
       <CardHeader>
         <CardTitle className="flex items-center">
           <MapPin className="h-5 w-5 mr-2" />
-          Parking Slots
+          Available Parking Slots
         </CardTitle>
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-4">
           {slots.map((slot) => {
             const assignedCar = getCarForSlot(slot.id);
+            const isAvailable = canAssignToSlot(slot.id);
+            
             return (
               <Card
                 key={slot.id}
-                className={`cursor-pointer transition-colors ${getSlotColor(slot.slotStatus)}`}
+                className={`cursor-pointer transition-colors ${getSlotColor(isAvailable ? 'available' : 'occupied')}`}
               >
                 <CardContent className="p-3 text-center">
                   <div className="flex flex-col items-center space-y-2">
                     <div className="text-sm font-bold">{slot.slotNumber}</div>
                     <Badge
-                      variant={slot.slotStatus === 'available' ? 'secondary' : 'destructive'}
+                      variant={isAvailable ? 'secondary' : 'destructive'}
                       className="text-xs"
                     >
-                      {slot.slotStatus}
+                      {isAvailable ? 'available' : 'occupied'}
                     </Badge>
                     {assignedCar && (
                       <div className="text-xs text-gray-600">
@@ -145,7 +119,7 @@ const ParkingSlotGrid: React.FC<ParkingSlotGridProps> = ({
                         {assignedCar.plateNumber}
                       </div>
                     )}
-                    {slot.slotStatus === 'available' && (
+                    {isAvailable && (
                       <Dialog>
                         <DialogTrigger asChild>
                           <Button
@@ -153,17 +127,17 @@ const ParkingSlotGrid: React.FC<ParkingSlotGridProps> = ({
                             className="text-xs"
                             onClick={() => setSelectedSlot(slot)}
                           >
-                            Assign
+                            Park Here
                           </Button>
                         </DialogTrigger>
                         <DialogContent>
                           <DialogHeader>
-                            <DialogTitle>Assign Car to Slot {slot.slotNumber}</DialogTitle>
+                            <DialogTitle>Park Car in Slot {slot.slotNumber}</DialogTitle>
                           </DialogHeader>
                           <div className="space-y-4">
                             <Select value={selectedCarId} onValueChange={setSelectedCarId}>
                               <SelectTrigger>
-                                <SelectValue placeholder="Select a car" />
+                                <SelectValue placeholder="Select your car" />
                               </SelectTrigger>
                               <SelectContent>
                                 {cars.map((car) => (
@@ -174,21 +148,11 @@ const ParkingSlotGrid: React.FC<ParkingSlotGridProps> = ({
                               </SelectContent>
                             </Select>
                             <Button onClick={assignCarToSlot} className="w-full">
-                              Assign Car
+                              Park Car
                             </Button>
                           </div>
                         </DialogContent>
                       </Dialog>
-                    )}
-                    {slot.slotStatus === 'occupied' && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="text-xs"
-                        onClick={() => releaseSlot(slot)}
-                      >
-                        Release
-                      </Button>
                     )}
                   </div>
                 </CardContent>
@@ -196,9 +160,14 @@ const ParkingSlotGrid: React.FC<ParkingSlotGridProps> = ({
             );
           })}
         </div>
+        {cars.length === 0 && (
+          <div className="text-center py-8 text-gray-500">
+            You need to register a car first before you can park.
+          </div>
+        )}
       </CardContent>
     </div>
   );
 };
 
-export default ParkingSlotGrid;
+export default OperatorParkingGrid;

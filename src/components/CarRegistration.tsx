@@ -13,9 +13,10 @@ import { useToast } from '@/hooks/use-toast';
 interface CarRegistrationProps {
   cars: Car[];
   onCarsUpdate: (cars: Car[]) => void;
+  operatorId: string;
 }
 
-const CarRegistration: React.FC<CarRegistrationProps> = ({ cars, onCarsUpdate }) => {
+const CarRegistration: React.FC<CarRegistrationProps> = ({ cars, onCarsUpdate, operatorId }) => {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingCar, setEditingCar] = useState<Car | null>(null);
   const [formData, setFormData] = useState({
@@ -45,6 +46,14 @@ const CarRegistration: React.FC<CarRegistrationProps> = ({ cars, onCarsUpdate })
           : car
       );
       onCarsUpdate(updatedCars);
+      
+      // Update localStorage
+      const allCars = JSON.parse(localStorage.getItem('parking_cars') || '[]');
+      const updatedAllCars = allCars.map((car: Car) =>
+        car.id === editingCar.id ? { ...car, ...formData } : car
+      );
+      localStorage.setItem('parking_cars', JSON.stringify(updatedAllCars));
+      
       toast({
         title: 'Car Updated',
         description: 'Car information has been updated successfully',
@@ -53,9 +62,16 @@ const CarRegistration: React.FC<CarRegistrationProps> = ({ cars, onCarsUpdate })
       // Add new car
       const newCar: Car = {
         id: `car-${Date.now()}`,
+        operatorId,
         ...formData
       };
-      onCarsUpdate([...cars, newCar]);
+      const updatedCars = [...cars, newCar];
+      onCarsUpdate(updatedCars);
+      
+      // Update localStorage
+      const allCars = JSON.parse(localStorage.getItem('parking_cars') || '[]');
+      localStorage.setItem('parking_cars', JSON.stringify([...allCars, newCar]));
+      
       toast({
         title: 'Car Registered',
         description: 'New car has been registered successfully',
@@ -79,6 +95,12 @@ const CarRegistration: React.FC<CarRegistrationProps> = ({ cars, onCarsUpdate })
   const handleDelete = (carId: string) => {
     const updatedCars = cars.filter(car => car.id !== carId);
     onCarsUpdate(updatedCars);
+    
+    // Update localStorage
+    const allCars = JSON.parse(localStorage.getItem('parking_cars') || '[]');
+    const updatedAllCars = allCars.filter((car: Car) => car.id !== carId);
+    localStorage.setItem('parking_cars', JSON.stringify(updatedAllCars));
+    
     toast({
       title: 'Car Deleted',
       description: 'Car has been removed from the system',
@@ -90,19 +112,19 @@ const CarRegistration: React.FC<CarRegistrationProps> = ({ cars, onCarsUpdate })
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle className="flex items-center">
           <CarIcon className="h-5 w-5 mr-2" />
-          Car Registration
+          My Cars
         </CardTitle>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
             <Button onClick={resetForm}>
               <Plus className="h-4 w-4 mr-2" />
-              Register Car
+              Add Car
             </Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>
-                {editingCar ? 'Edit Car' : 'Register New Car'}
+                {editingCar ? 'Edit Car' : 'Add New Car'}
               </DialogTitle>
             </DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -137,7 +159,7 @@ const CarRegistration: React.FC<CarRegistrationProps> = ({ cars, onCarsUpdate })
                 />
               </div>
               <Button type="submit" className="w-full">
-                {editingCar ? 'Update Car' : 'Register Car'}
+                {editingCar ? 'Update Car' : 'Add Car'}
               </Button>
             </form>
           </DialogContent>
@@ -183,7 +205,7 @@ const CarRegistration: React.FC<CarRegistrationProps> = ({ cars, onCarsUpdate })
         </Table>
         {cars.length === 0 && (
           <div className="text-center py-8 text-gray-500">
-            No cars registered yet. Click "Register Car" to add your first car.
+            No cars registered yet. Click "Add Car" to register your first car.
           </div>
         )}
       </CardContent>
