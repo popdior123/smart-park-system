@@ -3,11 +3,20 @@ import React from 'react';
 import { AuthProvider, useAuth } from '@/components/AuthContext';
 import LoginForm from '@/components/LoginForm';
 import Dashboard from '@/components/Dashboard';
+import OperatorDashboard from '@/components/OperatorDashboard';
 
 const AppContent: React.FC = () => {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   
-  return isAuthenticated ? <Dashboard /> : <LoginForm />;
+  if (!isAuthenticated) {
+    return <LoginForm />;
+  }
+  
+  if (user?.role === 'admin') {
+    return <Dashboard />;
+  }
+  
+  return <OperatorDashboard />;
 };
 
 const Index = () => {

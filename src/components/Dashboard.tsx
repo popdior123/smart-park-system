@@ -4,37 +4,62 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/components/AuthContext';
-import { ParkingSlot, Car, ParkingRecord, Payment } from '@/types/parking';
+import { ParkingSlot, Car, ParkingRecord, Payment, User } from '@/types/parking';
 import { Car as CarIcon, Clock, CreditCard, LogOut, Users } from 'lucide-react';
-import ParkingSlotGrid from '@/components/ParkingSlotGrid';
-import CarRegistration from '@/components/CarRegistration';
-import PaymentProcessing from '@/components/PaymentProcessing';
+import AdminParkingSlots from '@/components/AdminParkingSlots';
+import AdminOperators from '@/components/AdminOperators';
+import AdminPayments from '@/components/AdminPayments';
 import DailyReports from '@/components/DailyReports';
 
 const Dashboard: React.FC = () => {
-  const { user, logout } = useAuth();
+  const { user, logout, getAllOperators } = useAuth();
   const [activeTab, setActiveTab] = useState('parking');
   const [parkingSlots, setParkingSlots] = useState<ParkingSlot[]>([]);
   const [cars, setCars] = useState<Car[]>([]);
   const [parkingRecords, setParkingRecords] = useState<ParkingRecord[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
+  const [operators, setOperators] = useState<User[]>([]);
 
   // Initialize mock data
   useEffect(() => {
-    const mockSlots: ParkingSlot[] = Array.from({ length: 20 }, (_, i) => ({
-      id: `slot-${i + 1}`,
-      slotNumber: `A${String(i + 1).padStart(2, '0')}`,
-      slotStatus: Math.random() > 0.7 ? 'occupied' : 'available',
-      location: `Zone A, Level 1`
-    }));
-    setParkingSlots(mockSlots);
-  }, []);
+    // Initialize parking slots (empty by default)
+    const storedSlots = localStorage.getItem('parking_slots');
+    if (storedSlots) {
+      setParkingSlots(JSON.parse(storedSlots));
+    } else {
+      const mockSlots: ParkingSlot[] = Array.from({ length: 20 }, (_, i) => ({
+        id: `slot-${i + 1}`,
+        slotNumber: `A${String(i + 1).padStart(2, '0')}`,
+        slotStatus: 'available', // All slots start as available
+        location: `Zone A, Level 1`
+      }));
+      setParkingSlots(mockSlots);
+      localStorage.setItem('parking_slots', JSON.stringify(mockSlots));
+    }
+
+    // Load all data for admin view
+    const storedCars = localStorage.getItem('parking_cars');
+    if (storedCars) setCars(JSON.parse(storedCars));
+
+    const storedRecords = localStorage.getItem('parking_records');
+    if (storedRecords) setParkingRecords(JSON.parse(storedRecords));
+
+    const storedPayments = localStorage.getItem('parking_payments');
+    if (storedPayments) setPayments(JSON.parse(storedPayments));
+
+    // Load operators
+    setOperators(getAllOperators());
+  }, [getAllOperators]);
 
   const stats = {
     totalSlots: parkingSlots.length,
     occupiedSlots: parkingSlots.filter(slot => slot.slotStatus === 'occupied').length,
     availableSlots: parkingSlots.filter(slot => slot.slotStatus === 'available').length,
-    totalRevenue: payments.reduce((sum, payment) => sum + payment.amountPaid, 0)
+    totalRevenue: payments.reduce((sum, payment) => sum + payment.amountPaid, 0),
+    totalOperators: operators.length,
+    activeOperators: operators.filter(op => 
+      parkingRecords.some(record => record.operatorId === op.id && record.isActive)
+    ).length
   };
 
   return (
@@ -44,13 +69,13 @@ const Dashboard: React.FC = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center">
-              <h1 className="text-xl font-semibold text-blue-600">SmartPark Dashboard</h1>
+              <h1 className="text-xl font-semibold text-blue-600">SmartPark Admin Dashboard</h1>
               <Badge variant="secondary" className="ml-3">
-                {user?.role}
+                Administrator
               </Badge>
             </div>
             <div className="flex items-center space-x-4">
-              <span className="text-sm text-gray-700">Welcome, {user?.username}</span>
+              <span className="text-sm text-gray-700">Welcome, {user?.fullName}</span>
               <Button variant="outline" size="sm" onClick={logout}>
                 <LogOut className="h-4 w-4 mr-2" />
                 Logout
@@ -62,7 +87,7 @@ const Dashboard: React.FC = () => {
 
       {/* Stats Cards */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-6 gap-6 mb-6">
           <Card>
             <CardContent className="p-6">
               <div className="flex items-center">
@@ -118,6 +143,34 @@ const Dashboard: React.FC = () => {
               </div>
             </CardContent>
           </Card>
+
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center">
+                <div className="p-2 bg-purple-100 rounded-lg">
+                  <Users className="h-6 w-6 text-purple-600" />
+                </div>
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-gray-600">Total Operators</p>
+                  <p className="text-2xl font-bold">{stats.totalOperators}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center">
+                <div className="p-2 bg-orange-100 rounded-lg">
+                  <Users className="h-6 w-6 text-orange-600" />
+                </div>
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-gray-600">Active Operators</p>
+                  <p className="text-2xl font-bold">{stats.activeOperators}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         {/* Navigation Tabs */}
@@ -126,8 +179,8 @@ const Dashboard: React.FC = () => {
             <nav className="-mb-px flex space-x-8 px-6">
               {[
                 { key: 'parking', label: 'Parking Slots' },
-                { key: 'cars', label: 'Car Registration' },
-                { key: 'payments', label: 'Payments' },
+                { key: 'operators', label: 'Operators' },
+                { key: 'payments', label: 'Payment History' },
                 { key: 'reports', label: 'Reports' }
               ].map((tab) => (
                 <button
@@ -148,23 +201,24 @@ const Dashboard: React.FC = () => {
           {/* Tab Content */}
           <div className="p-6">
             {activeTab === 'parking' && (
-              <ParkingSlotGrid 
+              <AdminParkingSlots 
                 slots={parkingSlots} 
                 onSlotUpdate={setParkingSlots}
-                cars={cars}
-                parkingRecords={parkingRecords}
-                onRecordUpdate={setParkingRecords}
               />
             )}
-            {activeTab === 'cars' && (
-              <CarRegistration cars={cars} onCarsUpdate={setCars} />
+            {activeTab === 'operators' && (
+              <AdminOperators 
+                operators={operators}
+                cars={cars}
+                parkingRecords={parkingRecords}
+              />
             )}
             {activeTab === 'payments' && (
-              <PaymentProcessing 
-                parkingRecords={parkingRecords}
+              <AdminPayments
                 payments={payments}
-                onPaymentUpdate={setPayments}
+                parkingRecords={parkingRecords}
                 cars={cars}
+                operators={operators}
               />
             )}
             {activeTab === 'reports' && (

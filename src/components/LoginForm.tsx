@@ -6,11 +6,13 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/components/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+import RegistrationForm from '@/components/RegistrationForm';
 
 const LoginForm: React.FC = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [showRegistration, setShowRegistration] = useState(false);
   const { login } = useAuth();
   const { toast } = useToast();
 
@@ -37,6 +39,14 @@ const LoginForm: React.FC = () => {
       setIsLoading(false);
     }
   };
+
+  if (showRegistration) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <RegistrationForm onBackToLogin={() => setShowRegistration(false)} />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -72,11 +82,22 @@ const LoginForm: React.FC = () => {
             <Button type="submit" className="w-full" disabled={isLoading}>
               {isLoading ? 'Logging in...' : 'Login'}
             </Button>
+            
+            <div className="text-center">
+              <Button 
+                type="button" 
+                variant="link" 
+                onClick={() => setShowRegistration(true)}
+                className="text-blue-600"
+              >
+                Don't have an account? Register as Operator
+              </Button>
+            </div>
           </form>
+          
           <div className="mt-4 text-sm text-gray-600">
-            <p>Demo credentials:</p>
-            <p>Admin: admin / admin123</p>
-            <p>Operator: operator / op123</p>
+            <p>Demo Admin Login:</p>
+            <p>Username: admin / Password: admin123</p>
           </div>
         </CardContent>
       </Card>
